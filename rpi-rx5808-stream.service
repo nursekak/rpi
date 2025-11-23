@@ -4,7 +4,9 @@ After=network.target
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/rpi-rx5808-stream.py
+ExecStart=/usr/bin/python3 /usr/local/bin/rpi-rx5808-stream.py
+StandardOutput=journal
+StandardError=journal
 
 Restart=always
 RestartSec=2

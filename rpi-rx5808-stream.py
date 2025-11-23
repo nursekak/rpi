@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Dependency installation:
 # sudo apt-get update
 # sudo apt-get -y upgrade
-# sudo apt-get -y install gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-tools gstreamer1.0-alsa python-rpi.gpio
+# sudo apt-get -y install gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-tools gstreamer1.0-alsa python3-rpi.gpio
 #
 # Enable Hardware Watchdog:
 # sudo vi /etc/systemd/system.conf
@@ -38,12 +38,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from Queue import Queue
+from queue import Queue
 from threading import Thread
 import socket
 from select import select
 from wsgiref.simple_server import WSGIServer, make_server, WSGIRequestHandler
-from SocketServer import ThreadingMixIn
+from socketserver import ThreadingMixIn
 import subprocess
 import os
 import signal
