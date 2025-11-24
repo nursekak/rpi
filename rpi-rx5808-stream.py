@@ -582,7 +582,7 @@ function SetVolume(val) {
   </script>
 </html>
 """
-    return page_text
+    return page_text.encode("utf-8")
 
 def buildErrorPage(environ, error, title, text = None):
     page_text = """
@@ -605,7 +605,7 @@ def buildErrorPage(environ, error, title, text = None):
 </html>
 """
 
-    return page_text
+    return page_text.encode("utf-8")
 
 # -----------------------------------------------------------------------------
 # ----- RX5808 SPI GPIO interface -----
