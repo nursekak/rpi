@@ -6,7 +6,7 @@ do-nothing:
 	@echo "    install - Install this script and the systemd service"
 
 deps:
-	apt-get -y install gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-tools gstreamer1.0-alsa python3-rpi.gpio || pip3 install RPi.GPIO
+	apt-get -y install gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-tools gstreamer1.0-alsa python-rpi.gpio
 
 install: rpi-rx5808-stream.py rpi-rx5808-stream.service
 	@echo "==== Stopping existing service, if it exists..."
