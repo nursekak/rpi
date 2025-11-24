@@ -84,7 +84,8 @@ video_device = None
 # (replace /dev/video0 in the command with your input device)
 video_width = 720
 video_height = 480
-video_framerate = '30000/1001'
+video_framerate = '30/1'
+video_format = 'YUY2'
 video_norm = 'NTSC'
 
 # The MJPEG output framerate fraction is determined by this setting. For old
@@ -829,7 +830,7 @@ def buildGStreamerCommand():
     return ("exec gst-launch-1.0 " #-v "
         "v4l2src device=" + str(video_device_searched) + " norm=" + str(video_norm) + " "
         #"videotestsrc pattern=ball "
-        "! video/x-raw, framerate=" + str(video_framerate) + ", width=" + str(video_width) + ", height=" + str(video_height) + " "
+        "! video/x-raw, format=" + str(video_format) + ", framerate=" + str(video_framerate) + ", width=" + str(video_width) + ", height=" + str(video_height) + " "
         "! videorate "
         "! video/x-raw, framerate=" + str(video_out_framerate) + " "
         "! jpegenc "
