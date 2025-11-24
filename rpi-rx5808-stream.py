@@ -140,7 +140,8 @@ pin_ch3 = 11
 # This setting is especially useful for less powerful old Raspberry Pi models.
 # I'm using a RPi1 and with more than 1 FPS or more than 1 client the CPU usage
 # rises over 100% and everything pretty much stands still.
-maximum_clients = 4
+# Limit simultaneous clients (0 disables the check)
+maximum_clients = 0
 
 # Audio & Video are out-of-sync by definition when using this technique.
 # Audio will be preloaded and the video only started when audio is ready.
