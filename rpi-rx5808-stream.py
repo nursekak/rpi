@@ -104,30 +104,38 @@ boundary_string = "raspberrypi-rx5808-stream-xythobuz"
 canvas_width = video_width
 canvas_height = video_height
 
-# Parameters for your audio input device.
-# Test the audio recording like this:
-#
-# gst-launch-1.0 -v \
-#     alsasrc device=hw:CARD=usbtv,DEV=0 \
-#     ! audio/x-raw, channels=2, rate=48000 \
-#     ! lamemp3enc target=bitrate bitrate=64 mono=true \
-#     ! filesink location=test.mp3
-#
-# Query the available settings like this:
-#
-# gst-launch-1.0 --gst-debug=alsa:5 \
-#     alsasrc device=hw:CARD=usbtv,DEV=0 \
-#     ! fakesink 2>&1 \
-#     | sed -une '/returning caps/  s/[s;] /\n/gp'
-#
-# (replace hw:CARD=usbtv,DEV=0 with your hardware identifier string)
-audio_device = "hw:CARD=usbtv,DEV=0"
-audio_channels = "2"
-audio_rate = "48000"
+audio_enabled = False
 
-# MP3 output bitrate. Valid values here are:
-# 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256 or 320
-audio_mp3_bitrate = "96"
+if audio_enabled:
+    # Parameters for your audio input device.
+    # Test the audio recording like this:
+    #
+    # gst-launch-1.0 -v \
+    #     alsasrc device=hw:CARD=usbtv,DEV=0 \
+    #     ! audio/x-raw, channels=2, rate=48000 \
+    #     ! lamemp3enc target=bitrate bitrate=64 mono=true \
+    #     ! filesink location=test.mp3
+    #
+    # Query the available settings like this:
+    #
+    # gst-launch-1.0 --gst-debug=alsa:5 \
+    #     alsasrc device=hw:CARD=usbtv,DEV=0 \
+    #     ! fakesink 2>&1 \
+    #     | sed -une '/returning caps/  s/[s;] /\n/gp'
+    #
+    # (replace hw:CARD=usbtv,DEV=0 with your hardware identifier string)
+    audio_device = "hw:CARD=usbtv,DEV=0"
+    audio_channels = "2"
+    audio_rate = "48000"
+
+    # MP3 output bitrate. Valid values here are:
+    # 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256 or 320
+    audio_mp3_bitrate = "96"
+else:
+    audio_device = None
+    audio_channels = None
+    audio_rate = None
+    audio_mp3_bitrate = None
 
 # RX5808 GPIOs; use board numbering, so pin number of header
 pin_ch1 = 15
@@ -157,8 +165,12 @@ autoplay_stream = True
 video_host = '127.0.0.1'
 video_port = 9999
 
-audio_host = '127.0.0.1'
-audio_port = 9998
+if audio_enabled:
+    audio_host = '127.0.0.1'
+    audio_port = 9998
+else:
+    audio_host = None
+    audio_port = None
 
 # -----------------------------------------------------------------------------
 # ----- Automatic /dev/video* device search -----
@@ -224,18 +236,13 @@ def buildIndexPage(environ):
               <p>Use a modern browser with Javascript and HTML5 support to enable playback controls.</p>
             </noscript>
           </canvas>
-          <audio id="audio_player">
-            <noscript>
-              <p>Use a modern browser with Javascript and HTML5 support to enable audio playback.</p>
-            </noscript>
-          </audio>
-          <p><a href="/mjpeg_stream">Link to MJPEG video stream</a> <a href="/mp3_stream">Link to MP3 audio stream</a></p>
+          <p><a href="/mjpeg_stream">Link to MJPEG video stream</a></p>
           <p>Click on video frame to play or pause stream:</p>
           <div id="status">
             <p>Stream status: Loading...</p>
           </div>
         </td><td>
-          <p>Audio Volume: <input id="volume_control" type="range" min="0" max="100" step="1" oninput="SetVolume(this.value)" onchange="SetVolume(this.value)"></input> <span id="volume_text" /></p>
+          <p>Audio streaming disabled.</p>
           <hr />
           <p>Currently selected Frequency: <b>""" + get_frequency() + """</b> """ + get_osc_settings() + """</p>
           <hr />
@@ -402,7 +409,7 @@ var MJPEG = (function(module) {
     self.stop = function() { setRunning(false); }
   };
 
-  module.Player = function(canvas, url, audio_player, audio_url, options) {
+  module.Player = function(canvas, url, options) {
 
     var self = this;
 
@@ -431,18 +438,6 @@ var MJPEG = (function(module) {
         self.start();
       }
     }, false);
-
-    if (typeof audio_player === "string" || audio_player instanceof String) {
-      audio_player = document.getElementById(audio_player);
-    }
-
-    var volume_control = document.getElementById('volume_control');
-    var volume_text = document.getElementById('volume_text');
-
-    // Set default volume
-    volume_control.value = 10;
-    volume_text.innerHTML = "10%"
-    audio_player.volume = 0.1;
 
     function scaleRect(srcSize, dstSize) {
       var ratio = Math.min(dstSize.width / srcSize.width,
@@ -512,37 +507,15 @@ var MJPEG = (function(module) {
     }
 
     self.start = function() {
-      self.status.innerHTML = "<p>Stream status: Audio Started!</p>";
+      self.status.innerHTML = "<p>Stream status: Starting...</p>";
 
       canvasText("Loading stream...", 10);
       canvasText('URL: "' + url + '"', -canvas.height / 2 + 10, 12);
 
-      audio_player.src = audio_url;
-      audio_player.play();
-"""
-
-    if not play_video_immediately:
-        page_text += """
-      audio_player.oncanplay = self.started_audio;
-    }
-
-    self.started_audio = function() {
-      self.status.innerHTML = "<p>Stream status: Video Started!</p>";
       self.stream.start();
-"""
-    else:
-        page_text += """
-      self.status.innerHTML = "<p>Stream status: Video Started!</p>";
-      self.stream.start();
-"""
-
-    page_text += """
     }
 
     self.stop = function() {
-      audio_player.pause();
-      audio_player.src = '';
-
       self.stream.stop();
       self.status.innerHTML = "<p>Stream status: Stopped!</p>";
 
@@ -555,14 +528,12 @@ var MJPEG = (function(module) {
 })(MJPEG || {});
 
 var url = window.location.protocol + "//" + window.location.hostname + ":" + window.location.port + "/mjpeg_stream";
-var audio_url = window.location.protocol + "//" + window.location.hostname + ":" + window.location.port + "/mp3_stream";
 
 console.log("Connecting to: " + url);
-console.log("Connecting to: " + audio_url);
 
 window.history.pushState(null, null, '/');
 
-var player = new MJPEG.Player("player", url, "audio_player", audio_url);
+var player = new MJPEG.Player("player", url);
 
 """
 
@@ -572,15 +543,6 @@ var player = new MJPEG.Player("player", url, "audio_player", audio_url);
         page_text += "player.stop();"
 
     page_text += """
-function SetVolume(val) {
-  var player = document.getElementById('audio_player');
-  var volume_text = document.getElementById('volume_text');
-
-  player.volume = val / 100.0;
-  volume_text.innerHTML = String(val) + "%"
-
-  console.log('New volume: ' + player.volume);
-}
   </script>
 </html>
 """
@@ -827,20 +789,25 @@ def runCommand(cmd):
 def buildGStreamerCommand():
     global video_device_searched, video_norm, video_framerate, video_width, video_height
 
-    return ("exec gst-launch-1.0 " #-v "
+    pipeline = ("exec gst-launch-1.0 "
         "v4l2src device=" + str(video_device_searched) + " norm=" + str(video_norm) + " "
-        #"videotestsrc pattern=ball "
         "! video/x-raw, format=" + str(video_format) + ", framerate=" + str(video_framerate) + ", width=" + str(video_width) + ", height=" + str(video_height) + " "
         "! videorate "
         "! video/x-raw, framerate=" + str(video_out_framerate) + " "
         "! jpegenc "
         "! multipartmux boundary=" + str(boundary_string) + " "
         "! tcpclientsink host=" + str(video_host) + " port=" + str(video_port) + " "
-        "alsasrc device=" + str(audio_device) + " "
-        "! audio/x-raw, channels=" + str(audio_channels) + ", rate=" + str(audio_rate) + " "
-        "! lamemp3enc target=bitrate bitrate=" + str(audio_mp3_bitrate) + " mono=true "
-        "! tcpclientsink host=" + str(audio_host) + " port=" + str(audio_port) + " "
     )
+
+    if audio_enabled:
+        pipeline += (
+            "alsasrc device=" + str(audio_device) + " "
+            "! audio/x-raw, channels=" + str(audio_channels) + ", rate=" + str(audio_rate) + " "
+            "! lamemp3enc target=bitrate bitrate=" + str(audio_mp3_bitrate) + " mono=true "
+            "! tcpclientsink host=" + str(audio_host) + " port=" + str(audio_port) + " "
+        )
+
+    return pipeline
 
 last_proc = None
 
@@ -904,7 +871,14 @@ class IPCameraApp(object):
                 ])
                 return iter([error_page_contents])
         elif environ['PATH_INFO'] == '/mp3_stream':
-            if (maximum_clients == 0) or (client_count < maximum_clients):
+            if not audio_enabled:
+                error_page_contents = buildErrorPage(environ, "404", "Not Found", "Audio streaming is disabled.")
+                start_response("404 Not Found", [
+                    ("Content-Type", "text/html"),
+                    ("Content-Length", str(len(error_page_contents)))
+                ])
+                return iter([error_page_contents])
+            elif (maximum_clients == 0) or (client_count < maximum_clients):
                 return self.stream_audio(start_response)
             else:
                 text = "No streaming slots available ({}/{})!".format(client_count, maximum_clients)
@@ -1170,17 +1144,20 @@ if __name__ == '__main__':
 
     print("StreamServer: Launching input stream thread...")
     t1 = Thread(target=input_loop, args=[app])
-    t1.setDaemon(True)
+    t1.daemon = True
     t1.start()
 
-    print("StreamServer: Launching audio input stream thread...")
-    t2 = Thread(target=audio_input_loop, args=[app])
-    t2.setDaemon(True)
-    t2.start()
+    if audio_enabled:
+        print("StreamServer: Launching audio input stream thread...")
+        t2 = Thread(target=audio_input_loop, args=[app])
+        t2.daemon = True
+        t2.start()
+    else:
+        print("StreamServer: Audio streaming disabled, skipping audio input thread.")
 
     print("StreamServer: Launching watchdog thread...")
     t3 = Thread(target=watchdog_loop, args=[app])
-    t3.setDaemon(True)
+    t3.daemon = True
     t3.start()
 
     print("StreamServer: Waiting for connections to start streaming...")
