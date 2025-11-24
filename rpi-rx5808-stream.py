@@ -820,7 +820,7 @@ def handleSettings(queryString):
 # ----- External Process / GStreamer control -----
 
 def runCommand(cmd):
-    return subprocess.check_output(cmd, shell = True)
+    return subprocess.check_output(cmd, shell = True, text = True).strip()
 
 def buildGStreamerCommand():
     global video_device_searched, video_norm, video_framerate, video_width, video_height
