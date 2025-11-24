@@ -39,7 +39,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from queue import Queue
-from threading import Thread
+from threading import Thread, Lock
 import socket
 from select import select
 from wsgiref.simple_server import WSGIServer, make_server, WSGIRequestHandler
@@ -50,6 +50,7 @@ import signal
 import atexit
 import RPi.GPIO as GPIO
 import time
+import tempfile
 
 # -----------------------------------------------------------------------------
 # ----- Preferences -----
@@ -136,6 +137,20 @@ else:
     audio_channels = None
     audio_rate = None
     audio_mp3_bitrate = None
+
+spi_lock = Lock()
+scan_lock = Lock()
+
+# Channel scan configuration/state
+auto_scan_on_start = True
+scan_running = False
+scan_should_stop = False
+scan_results = []
+scan_status_text = "Idle"
+scan_last_message = None
+scan_progress = 0
+scan_thread = None
+minimum_signal_size = 5000  # bytes in captured JPEG to consider channel "live"
 
 # RX5808 GPIOs; use board numbering, so pin number of header
 pin_ch1 = 15
@@ -333,6 +348,47 @@ def buildIndexPage(environ):
       </tr>
     </table>
     <hr />
+    <h2>Channel Scan</h2>
+    <p>Status: """ + scan_status_text + (" (running)" if scan_running else "") + """</p>
+    """
+
+    if scan_last_message != None:
+        page_text += "<p>Message: {}</p>".format(scan_last_message)
+
+    page_text += """
+    <p>
+      <a href="/?scan=start">Start Scan</a>
+      <a href="/?scan=stop">Stop Scan</a>
+    </p>
+    """
+
+    scan_copy = get_scan_results_copy()
+    if len(scan_copy) > 0:
+        page_text += """
+    <table border="1">
+      <tr>
+        <th>Channel</th>
+        <th>Frequency</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+"""
+        for entry in scan_copy:
+            state = "Live" if entry["live"] else "No signal"
+            color = "#080" if entry["live"] else "#800"
+            page_text += (
+                "<tr>"
+                "<td>{label}</td>"
+                "<td>{freq}MHz</td>"
+                "<td style=\"color:{color}\">{state}</td>"
+                "<td><a href=\"?freq={freq}MHz\">Use</a></td>"
+                "</tr>"
+            ).format(label=entry["label"], freq=entry["frequency"], color=color, state=state)
+        page_text += "</table>"
+    else:
+        page_text += "<p>No scan results yet.</p>"
+
+    page_text += """
     <p>Current Status (not updated dynamically, refresh to reload!):</p>
     <p>Streaming clients: """ + str(client_count)
 
@@ -604,6 +660,131 @@ channel_frequencies = [
     5362, 5399, 5436, 5473, 5510, 5547, 5584, 5621 # Band D / 5.3
 ]
 
+def get_channel_label(idx):
+    return "FPV {}".format(idx + 1)
+
+def get_scan_results_copy():
+    with scan_lock:
+        return list(scan_results)
+
+def start_channel_scan(auto_trigger=False):
+    global scan_running, scan_should_stop, scan_thread, scan_status_text, scan_last_message
+
+    if scan_running:
+        scan_last_message = "Scan already running."
+        return False
+
+    if client_count > 0:
+        scan_last_message = "Cannot scan while clients are connected."
+        return False
+
+    killGStreamer()
+
+    scan_should_stop = False
+    scan_status_text = "Starting scan..."
+    scan_last_message = "Scan started."
+
+    scan_thread = Thread(target=scan_worker, args=(auto_trigger,))
+    scan_thread.daemon = True
+    scan_thread.start()
+    return True
+
+def stop_channel_scan():
+    global scan_should_stop, scan_last_message
+
+    if not scan_running:
+        scan_last_message = "Scan is not running."
+        return False
+
+    scan_should_stop = True
+    scan_last_message = "Stopping scan..."
+    return True
+
+def scan_worker(auto_trigger):
+    global scan_running, scan_results, scan_status_text, scan_last_message, scan_progress, scan_should_stop
+
+    scan_running = True
+    scan_progress = 0
+    local_results = []
+    first_live_freq = None
+
+    determineVideoDevice()
+
+    total_channels = len(channel_frequencies)
+    for idx, freq in enumerate(channel_frequencies):
+        if scan_should_stop:
+            break
+
+        live, sample_size = probe_frequency(freq)
+        entry = {
+            "index": idx,
+            "label": get_channel_label(idx),
+            "frequency": freq,
+            "live": live,
+            "size": sample_size
+        }
+
+        with scan_lock:
+            local_results.append(entry)
+            scan_results = list(local_results)
+        scan_progress = idx + 1
+
+        if live and first_live_freq is None:
+            first_live_freq = freq
+            if auto_trigger:
+                set_frequency(str(freq))
+
+    if scan_should_stop:
+        scan_status_text = "Scan stopped ({}/{})".format(scan_progress, total_channels)
+        scan_last_message = "Scan cancelled."
+    else:
+        scan_status_text = "Scan completed ({}/{})".format(scan_progress, total_channels)
+        if first_live_freq:
+            scan_last_message = "Scan completed. Best channel: {}MHz".format(first_live_freq)
+        else:
+            scan_last_message = "Scan completed. No live signals detected."
+
+    scan_running = False
+    scan_should_stop = False
+
+def probe_frequency(freq):
+    determineVideoDevice()
+    set_frequency(str(freq))
+    time.sleep(0.2)
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+
+    dev_path = video_device_searched if video_device_searched else (video_device if video_device else "/dev/video0")
+
+    cmd = (
+        "gst-launch-1.0 -q "
+        "v4l2src device={dev} num-buffers=1 "
+        "! video/x-raw, format={fmt}, framerate={fr}, width={w}, height={h} "
+        "! jpegenc "
+        "! filesink location={path}"
+    ).format(
+        dev=dev_path,
+        fmt=video_format,
+        fr=video_framerate,
+        w=video_width,
+        h=video_height,
+        path=tmp_path
+    )
+
+    size = 0
+    try:
+        subprocess.run(cmd, shell=True, timeout=4, check=True)
+        if os.path.exists(tmp_path):
+            size = os.path.getsize(tmp_path)
+    except Exception:
+        size = 0
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    return size >= minimum_signal_size, size
+
 def spi_sendbit_1():
     GPIO.output(pin_clock, GPIO.LOW)
     time.sleep(0.000001)
@@ -654,39 +835,40 @@ def spi_select_high():
     time.sleep(0.000001)
 
 def get_register(reg):
-    spi_select_high();
-    time.sleep(0.000001)
-    spi_select_low();
+    with spi_lock:
+        spi_select_high();
+        time.sleep(0.000001)
+        spi_select_low();
 
-    for i in range(4):
-        if reg & (1 << i):
-            spi_sendbit_1();
-        else:
-            spi_sendbit_0();
+        for i in range(4):
+            if reg & (1 << i):
+                spi_sendbit_1();
+            else:
+                spi_sendbit_0();
 
-    # Read from register
-    spi_sendbit_0();
+        # Read from register
+        spi_sendbit_0();
 
-    GPIO.setup(pin_data, GPIO.IN)
+        GPIO.setup(pin_data, GPIO.IN)
 
-    data = 0
-    for i in range(20):
-        # Is bit high or low?
-        val = spi_readbit()
-        if val:
-            data |= (1 << i)
+        data = 0
+        for i in range(20):
+            # Is bit high or low?
+            val = spi_readbit()
+            if val:
+                data |= (1 << i)
 
-    # Finished clocking data in
-    spi_select_high()
-    time.sleep(0.000001)
+        # Finished clocking data in
+        spi_select_high()
+        time.sleep(0.000001)
 
-    GPIO.setup(pin_data, GPIO.OUT)
+        GPIO.setup(pin_data, GPIO.OUT)
 
-    GPIO.output(pin_ss, GPIO.LOW)
-    GPIO.output(pin_clock, GPIO.LOW)
-    GPIO.output(pin_data, GPIO.LOW)
+        GPIO.output(pin_ss, GPIO.LOW)
+        GPIO.output(pin_clock, GPIO.LOW)
+        GPIO.output(pin_data, GPIO.LOW)
 
-    return data
+        return data
 
 def get_frequency():
     channel_data = get_register(0x01)
@@ -708,59 +890,59 @@ def get_osc_settings():
     return "(Settings: {}; Reference: {}MHz)".format(hex(val), str(pre))
 
 def set_register(reg, val):
-    spi_select_high();
-    time.sleep(0.000001)
-    spi_select_low();
+    with spi_lock:
+        spi_select_high();
+        time.sleep(0.000001)
+        spi_select_low();
 
-    for i in range(4):
-        if reg & (1 << i):
-            spi_sendbit_1();
-        else:
-            spi_sendbit_0();
+        for i in range(4):
+            if reg & (1 << i):
+                spi_sendbit_1();
+            else:
+                spi_sendbit_0();
 
-    # Write to register
-    spi_sendbit_1();
+        # Write to register
+        spi_sendbit_1();
 
-    # D0-D15
-    for i in range(20):
-        # Is bit high or low?
-        if val & 0x1:
-            spi_sendbit_1()
-        else:
-            spi_sendbit_0()
+        # D0-D15
+        for i in range(20):
+            # Is bit high or low?
+            if val & 0x1:
+                spi_sendbit_1()
+            else:
+                spi_sendbit_0()
 
-        # Shift bits along to check the next one
-        val >>= 1
+            # Shift bits along to check the next one
+            val >>= 1
 
-    # Finished clocking data in
-    spi_select_high()
-    time.sleep(0.000001)
-    spi_select_low();
+        # Finished clocking data in
+        spi_select_high()
+        time.sleep(0.000001)
+        spi_select_low();
 
 def set_frequency(freq):
-    channel_data = None
-    for i in range(len(channel_frequencies)):
-        if str(channel_frequencies[i]) == freq:
-            channel_data = channel_values[i]
-            break
+    with spi_lock:
+        channel_data = None
+        for i in range(len(channel_frequencies)):
+            if str(channel_frequencies[i]) == freq:
+                channel_data = channel_values[i]
+                break
 
-    if channel_data == None:
-        s = "Error: unknown frequency {}MHz!".format(freq)
-        print(s)
-        return s
+        if channel_data == None:
+            s = "Error: unknown frequency {}MHz!".format(freq)
+            print(s)
+            return s
 
-    print("Selected frequency: {}MHz ({})...".format(freq, channel_data))
+        print("Selected frequency: {}MHz ({})...".format(freq, channel_data))
 
-    #set_register(0x08, 0x00)
-    set_register(0x08, 0x03F40) # default values
+        set_register(0x08, 0x03F40) # default values
+        set_register(0x01, channel_data)
 
-    set_register(0x01, channel_data)
+        GPIO.output(pin_ss, GPIO.LOW)
+        GPIO.output(pin_clock, GPIO.LOW)
+        GPIO.output(pin_data, GPIO.LOW)
 
-    GPIO.output(pin_ss, GPIO.LOW)
-    GPIO.output(pin_clock, GPIO.LOW)
-    GPIO.output(pin_data, GPIO.LOW)
-
-    return "Success (set freq to {})!".format(hex(channel_data))
+        return "Success (set freq to {})!".format(hex(channel_data))
 
 # -----------------------------------------------------------------------------
 # ----- Webinterface GET parameter handling -----
@@ -774,6 +956,16 @@ def handleSettings(queryString):
         freq = queryString.replace("freq=", "").replace("MHz", "")
         lastCommandResult = set_frequency(freq)
         time.sleep(0.1)
+    elif queryString == "scan=start":
+        if start_channel_scan():
+            lastCommandResult = "Channel scan started."
+        else:
+            lastCommandResult = scan_last_message or "Unable to start scan."
+    elif queryString == "scan=stop":
+        if stop_channel_scan():
+            lastCommandResult = "Stopping channel scan..."
+        else:
+            lastCommandResult = scan_last_message or "Scan is not running."
     elif queryString == "quit":
         print("Exiting after user request!")
         kill_all()
@@ -1129,9 +1321,10 @@ def watchdog_loop(app):
 # ----- main application logic -----
 
 def kill_all():
-    global thread_running
+    global thread_running, scan_should_stop
 
     thread_running = False
+    scan_should_stop = True
     killGStreamer()
 
 if __name__ == '__main__':
@@ -1159,6 +1352,10 @@ if __name__ == '__main__':
     t3 = Thread(target=watchdog_loop, args=[app])
     t3.daemon = True
     t3.start()
+
+    if auto_scan_on_start:
+        print("StreamServer: Auto channel scan scheduled...")
+        start_channel_scan(auto_trigger=True)
 
     print("StreamServer: Waiting for connections to start streaming...")
     atexit.register(kill_all)
