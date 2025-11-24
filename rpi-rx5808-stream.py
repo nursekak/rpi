@@ -60,7 +60,7 @@ import time
 web_port = 81
 
 # Set to None and the first /dev/video* device will be used
-video_device = None
+video_device = "/dev/video0"
 
 # Parameters of your video input device.
 # Check beforehand if these work and output a proper image, like this:
