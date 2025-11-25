@@ -174,7 +174,12 @@ class MainWindow(QMainWindow):
                 self.channel_list_layout.insertWidget(self.channel_list_layout.count() - 1, btn)
             return
 
-        for info in results:
+        # show strongest live channels first; fall back to all results if none live
+        live_only = [info for info in results if info.live]
+        display_list = live_only or results
+        display_list.sort(key=lambda info: info.sample_size, reverse=True)
+
+        for info in display_list:
             btn = ChannelButton(info, self._select_channel)
             self.channel_list_layout.insertWidget(self.channel_list_layout.count() - 1, btn)
 
