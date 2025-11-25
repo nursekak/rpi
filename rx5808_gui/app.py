@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
 
         if not results:
             for idx, freq in enumerate(CHANNEL_FREQUENCIES):
-                info = ChannelInfo(idx, channel_label(idx), freq, False, 0)
+                info = ChannelInfo(idx, channel_label(idx), freq, False, 0, 0.0)
                 btn = ChannelButton(info, self._select_channel)
                 self.channel_list_layout.insertWidget(self.channel_list_layout.count() - 1, btn)
             return

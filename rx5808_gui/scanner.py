@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Callable, List
 
 import subprocess
+import cv2  # type: ignore
 
 from .config import (
     CHANNEL_FREQUENCIES,
@@ -30,6 +31,7 @@ class ChannelInfo:
     frequency: int
     live: bool
     sample_size: int
+    variance: float
 
 
 class ChannelScanner(threading.Thread):
@@ -39,12 +41,14 @@ class ChannelScanner(threading.Thread):
         *,
         on_progress: Callable[[List[ChannelInfo], str], None],
         min_signal_size: int = 5000,
+        min_variance: float = 35.0,
         auto_select: bool = True,
     ) -> None:
         super().__init__(daemon=True)
         self.controller = controller
         self.on_progress = on_progress
         self.min_signal_size = min_signal_size
+        self.min_variance = min_variance
         self.auto_select = auto_select
         self._stop_event = threading.Event()
 
@@ -76,7 +80,11 @@ class ChannelScanner(threading.Thread):
                 info = self._probe(idx, freq)
                 results.append(info)
                 
-                status = f"Scanning ({idx + 1}/{total}) - {label} ({freq}MHz): {'LIVE' if info.live else 'no signal'}"
+                verdict = "LIVE" if info.live else "no signal"
+                status = (
+                    f"Scanning ({idx + 1}/{total}) - {label} ({freq}MHz): {verdict} "
+                    f"(size={info.sample_size}B, var={info.variance:.1f})"
+                )
                 self.on_progress(results, status)
 
                 if info.live and first_live is None and self.auto_select:
@@ -104,6 +112,7 @@ class ChannelScanner(threading.Thread):
                 frequency=freq,
                 live=False,
                 sample_size=0,
+                variance=0.0,
             )
         
         try:
@@ -116,6 +125,7 @@ class ChannelScanner(threading.Thread):
                 frequency=freq,
                 live=False,
                 sample_size=0,
+                variance=0.0,
             )
         
         # Check stop event during sleep
@@ -127,6 +137,7 @@ class ChannelScanner(threading.Thread):
                     frequency=freq,
                     live=False,
                     sample_size=0,
+                    variance=0.0,
                 )
             time.sleep(0.01)
 
@@ -137,6 +148,7 @@ class ChannelScanner(threading.Thread):
                 frequency=freq,
                 live=False,
                 sample_size=0,
+                variance=0.0,
             )
 
         fd, tmp_path = tempfile.mkstemp(suffix=".jpg")
@@ -152,6 +164,7 @@ class ChannelScanner(threading.Thread):
         )
 
         size = 0
+        variance = 0.0
         proc = None
         try:
             # Start process and check for stop during execution
@@ -178,8 +191,15 @@ class ChannelScanner(threading.Thread):
                     proc.kill()
             elif proc.returncode == 0 and os.path.exists(tmp_path):
                 size = os.path.getsize(tmp_path)
+                try:
+                    frame = cv2.imread(tmp_path, cv2.IMREAD_GRAYSCALE)
+                    if frame is not None:
+                        variance = float(frame.var())
+                except Exception:
+                    variance = 0.0
         except Exception:
             size = 0
+            variance = 0.0
         finally:
             if proc and proc.poll() is None:
                 try:
@@ -193,11 +213,12 @@ class ChannelScanner(threading.Thread):
                 except:
                     pass
 
-        live = size >= self.min_signal_size
+        live = size >= self.min_signal_size and variance >= self.min_variance
         return ChannelInfo(
             index=idx,
             label=channel_label(idx),
             frequency=freq,
             live=live,
             sample_size=size,
+            variance=variance,
         )
