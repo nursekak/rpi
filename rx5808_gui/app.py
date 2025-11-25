@@ -91,6 +91,10 @@ class MainWindow(QMainWindow):
         panel_layout = QVBoxLayout(self.channel_panel)
         panel_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+        self.scan_status_label = QLabel("Scan status: Idle")
+        self.scan_status_label.setStyleSheet("color: #bbb; font-size: 12px;")
+        panel_layout.addWidget(self.scan_status_label)
+
         self.channel_scroll = QScrollArea()
         self.channel_scroll.setWidgetResizable(True)
         self.channel_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -134,20 +138,24 @@ class MainWindow(QMainWindow):
             self.scanner = None
             self.scan_button.setText("Start Scan")
             self.status_label.setText("Stopping scan...")
+            self.scan_status_label.setText("Scan status: cancelling...")
             self._start_video()
             return
 
         self._stop_video()
         self.status_label.setText("Scan started")
+        self.scan_status_label.setText("Scan status: starting...")
         self.scan_button.setText("Stop Scan")
 
         def on_progress(results: List[ChannelInfo], status: str) -> None:
             def update() -> None:
                 self._populate_channel_buttons(results)
                 self.status_label.setText(status)
+                self.scan_status_label.setText(f"Scan status: {status}")
                 if status.startswith("Completed"):
                     self.scan_button.setText("Start Scan")
                     self.scanner = None
+                    self.scan_status_label.setText("Scan status: Idle")
                     self._start_video()
 
             QTimer.singleShot(0, update)
