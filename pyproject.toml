@@ -1,4 +1,22 @@
 [build-system]
-requires = ["setuptools>=70", "wheel"]
-build-backend = "setuptools.build_meta:__legacy__"
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rx5808-gui"
+version = "0.1.0"
+description = "PyQt6 GUI for RX5808 video scanner"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "PyQt6>=6.4",
+    "opencv-python>=4.5",
+    "RPi.GPIO>=0.7",
+]
+
+[project.scripts]
+rx5808-gui = "rx5808_gui.app:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rx5808_gui"]
 
