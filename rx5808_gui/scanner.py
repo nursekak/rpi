@@ -54,8 +54,10 @@ class ChannelScanner(threading.Thread):
     def run(self) -> None:
         results: List[ChannelInfo] = []
         first_live = None
+        total = len(CHANNEL_FREQUENCIES)
 
         try:
+            self.on_progress(results, f"Scanning (0/{total})")
             for idx, freq in enumerate(CHANNEL_FREQUENCIES):
                 if self._stop_event.is_set():
                     self.on_progress(results, "Scan cancelled")
@@ -63,7 +65,7 @@ class ChannelScanner(threading.Thread):
 
                 info = self._probe(idx, freq)
                 results.append(info)
-                self.on_progress(results, f"Scanning ({idx + 1}/{len(CHANNEL_FREQUENCIES)})")
+                self.on_progress(results, f"Scanning ({idx + 1}/{total})")
 
                 if info.live and first_live is None and self.auto_select:
                     first_live = freq

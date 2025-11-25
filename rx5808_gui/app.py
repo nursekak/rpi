@@ -152,7 +152,7 @@ class MainWindow(QMainWindow):
                 self._populate_channel_buttons(results)
                 self.status_label.setText(status)
                 self.scan_status_label.setText(f"Scan status: {status}")
-                if status.startswith("Completed"):
+                if status.startswith(("Completed", "Scan cancelled", "Scan error")):
                     self.scan_button.setText("Start Scan")
                     self.scanner = None
                     self.scan_status_label.setText("Scan status: Idle")
