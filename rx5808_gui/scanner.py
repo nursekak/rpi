@@ -55,23 +55,26 @@ class ChannelScanner(threading.Thread):
         results: List[ChannelInfo] = []
         first_live = None
 
-        for idx, freq in enumerate(CHANNEL_FREQUENCIES):
-            if self._stop_event.is_set():
-                self.on_progress(results, "Scan cancelled")
-                return
+        try:
+            for idx, freq in enumerate(CHANNEL_FREQUENCIES):
+                if self._stop_event.is_set():
+                    self.on_progress(results, "Scan cancelled")
+                    return
 
-            info = self._probe(idx, freq)
-            results.append(info)
-            self.on_progress(results, f"Scanning ({idx + 1}/{len(CHANNEL_FREQUENCIES)})")
+                info = self._probe(idx, freq)
+                results.append(info)
+                self.on_progress(results, f"Scanning ({idx + 1}/{len(CHANNEL_FREQUENCIES)})")
 
-            if info.live and first_live is None and self.auto_select:
-                first_live = freq
+                if info.live and first_live is None and self.auto_select:
+                    first_live = freq
 
-        if first_live is not None:
-            self.controller.set_frequency(first_live)
-            self.on_progress(results, f"Completed. Best channel: {first_live}MHz")
-        else:
-            self.on_progress(results, "Completed. No live signals")
+            if first_live is not None:
+                self.controller.set_frequency(first_live)
+                self.on_progress(results, f"Completed. Best channel: {first_live}MHz")
+            else:
+                self.on_progress(results, "Completed. No live signals")
+        except Exception as exc:  # keep UI responsive on hardware errors
+            self.on_progress(results, f"Scan error: {exc}")
 
     # ----------------------------------------------------------------- helpers
     def _probe(self, idx: int, freq: int) -> ChannelInfo:
