@@ -148,15 +148,24 @@ class MainWindow(QMainWindow):
         self.scan_button.setText("Stop Scan")
 
         def on_progress(results: List[ChannelInfo], status: str) -> None:
+            print(f"[App] Progress callback: {status}")
             def update() -> None:
-                self._populate_channel_buttons(results)
-                self.status_label.setText(status)
-                self.scan_status_label.setText(f"Scan status: {status}")
-                if status.startswith(("Completed", "Scan cancelled", "Scan error")):
-                    self.scan_button.setText("Start Scan")
-                    self.scanner = None
-                    self.scan_status_label.setText("Scan status: Idle")
-                    self._start_video()
+                try:
+                    print(f"[App] Updating UI with status: {status}")
+                    self._populate_channel_buttons(results)
+                    self.status_label.setText(status)
+                    self.scan_status_label.setText(f"Scan status: {status}")
+                    if status.startswith(("Completed", "Scan cancelled", "Scan error")):
+                        self.scan_button.setText("Start Scan")
+                        self.scanner = None
+                        self.scan_status_label.setText("Scan status: Idle")
+                        self._start_video()
+                except Exception as e:
+                    # Fallback if UI update fails
+                    import traceback
+                    print(f"[App] Error updating UI: {e}")
+                    traceback.print_exc()
+                    self.scan_status_label.setText(f"Scan status: Error - {e}")
 
             QTimer.singleShot(0, update)
 
@@ -167,6 +176,21 @@ class MainWindow(QMainWindow):
             auto_select=True,
         )
         self.scanner.start()
+        
+        # Verify thread started - if it doesn't update in 1 second, show error
+        def check_thread():
+            if self.scanner and self.scanner.is_alive():
+                # Thread is running, it should have called on_progress by now
+                pass
+            else:
+                # Thread died immediately
+                self.scan_status_label.setText("Scan status: Thread failed to start")
+                self.status_label.setText("Scan failed - check console for errors")
+                self.scan_button.setText("Start Scan")
+                self.scanner = None
+                self._start_video()
+        
+        QTimer.singleShot(1000, check_thread)
 
     def _populate_channel_buttons(self, results: List[ChannelInfo]) -> None:
         while self.channel_list_layout.count() > 1:

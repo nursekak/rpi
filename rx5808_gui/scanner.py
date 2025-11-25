@@ -57,7 +57,14 @@ class ChannelScanner(threading.Thread):
         total = len(CHANNEL_FREQUENCIES)
 
         try:
+            # Immediate progress update to confirm thread started
+            print(f"[Scanner] Thread started, total channels: {total}")
             self.on_progress(results, f"Scanning (0/{total}) - Starting...")
+            
+            # Small delay to ensure UI updates
+            time.sleep(0.05)
+            print(f"[Scanner] Starting channel loop...")
+            
             for idx, freq in enumerate(CHANNEL_FREQUENCIES):
                 if self._stop_event.is_set():
                     self.on_progress(results, "Scan cancelled")
@@ -81,7 +88,11 @@ class ChannelScanner(threading.Thread):
             else:
                 self.on_progress(results, "Completed. No live signals")
         except Exception as exc:  # keep UI responsive on hardware errors
-            self.on_progress(results, f"Scan error: {exc}")
+            import traceback
+            error_msg = f"Scan error: {exc}"
+            print(f"[Scanner] Exception: {error_msg}")
+            traceback.print_exc()
+            self.on_progress(results, error_msg)
 
     # ----------------------------------------------------------------- helpers
     def _probe(self, idx: int, freq: int) -> ChannelInfo:
@@ -95,7 +106,17 @@ class ChannelScanner(threading.Thread):
                 sample_size=0,
             )
         
-        self.controller.set_frequency(freq)
+        try:
+            self.controller.set_frequency(freq)
+        except Exception as e:
+            # If controller fails, return error info
+            return ChannelInfo(
+                index=idx,
+                label=channel_label(idx),
+                frequency=freq,
+                live=False,
+                sample_size=0,
+            )
         
         # Check stop event during sleep
         for _ in range(20):  # 0.2s = 20 * 0.01s
